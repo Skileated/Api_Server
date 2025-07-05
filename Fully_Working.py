@@ -1272,15 +1272,15 @@ if __name__ == "__main__":
     # Always run inference after ensuring the model is available
     run_inference()
 def run_inference_on_text(text: str) -> dict:
-    # Load models and data (same as in run_inference)
+    import pickle
+    from nltk.tokenize import word_tokenize
+
     with open('knowledge_graph_data.pkl', 'rb') as f:
         graph_data = pickle.load(f)
     with open('trained_models.pkl', 'rb') as f:
         models_data = pickle.load(f)
     with open('embeddings_and_features.pkl', 'rb') as f:
         features_data = pickle.load(f)
-    with open('crf_model.pkl', 'rb') as f:
-        crf_model = pickle.load(f)
 
     graph = graph_data['nx_graph'].graph
     model = models_data['neural_network']
@@ -1298,25 +1298,18 @@ def run_inference_on_text(text: str) -> dict:
         temperature=temperature
     )
 
-    from nltk.tokenize import word_tokenize
     tokens = word_tokenize(text)
     tokens = [t.strip().lower() for t in tokens if t.strip()]
 
-    results = traversal_system.detect_sentence_boundaries(tokens)
+    entropy_scores = []
+    for i, token in enumerate(tokens):
+        context_start = max(0, i - 3)
+        context_end = min(len(tokens), i + 4)
+        context = tokens[context_start:context_end]
+        entropy = traversal_system.calculate_entropy_score(token, context)
+        entropy_scores.append(round(float(entropy), 4))
 
-    # Apply CRF model
-    entropy_scores = [float(row['Entropy Score']) for row in results]
-    crf_input_X, _ = prepare_crf_data(tokens=[row['Token'] for row in results], entropy_scores=entropy_scores, threshold=threshold)
-    crf_labels = crf_model.predict(crf_input_X)[0]
-
-    output = []
-    sentence_id = 1
-    for i, row in enumerate(results):
-        if crf_labels[i] == 'B':
-            row['Sentence Start'] = f"✓ (Sentence {sentence_id})"
-            sentence_id += 1
-        else:
-            row['Sentence Start'] = ""
-        output.append(row)
-
-    return {"results": output}
+    return {
+        "tokens": tokens,
+        "entropy_scores": entropy_scores
+    }
